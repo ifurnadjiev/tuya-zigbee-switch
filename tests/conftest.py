@@ -27,7 +27,7 @@ from tests.zcl_consts import (
     ZCL_CMD_WINDOW_COVERING_STOP,
 )
 
-DEBOUNCE_MS = 50
+DEBOUNCE_MS = 20
 
 
 @pytest.fixture(autouse=True)
@@ -250,7 +250,7 @@ class Device:
     ) -> None:
         def _has_attr_change() -> bool:
             for e in self._events:
-                if e.kind != "zcl_attr_change":
+                if e.kind not in ("zcl_attr_change", "zcl_attr_report"):
                     continue
                 e_ep = int(e.payload["ep"])
                 e_cluster = int(e.payload["cluster"], 16)

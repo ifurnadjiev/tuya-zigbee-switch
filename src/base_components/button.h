@@ -8,7 +8,8 @@
 typedef void (*ev_button_callback_t)(void *);
 typedef void (*ev_button_multi_press_callback_t)(void *, uint8_t);
 
-#define DEBOUNCE_DELAY_MS 50
+// Reject contact chatter while allowing brief, intentional button presses.
+#define DEBOUNCE_DELAY_MS 20
 
 typedef struct {
   hal_gpio_pin_t pin;

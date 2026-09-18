@@ -2,10 +2,12 @@ import pytest
 
 from tests.conftest import Device, RelayButtonPair
 from tests.zcl_consts import (
+    ZCL_ATTR_MULTISTATE_INPUT_PRESENT_VALUE,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_LEVEL_MOVE_RATE,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_LONG_PRESS_DUR,
     ZCL_ATTR_ONOFF_CONFIGURATION_SWITCH_RELAY_INDEX,
     ZCL_CLUSTER_LEVEL_CONTROL,
+    ZCL_CLUSTER_MULTISTATE_INPUT_BASIC,
     ZCL_CLUSTER_ON_OFF,
     ZCL_CLUSTER_ON_OFF_SWITCH_CONFIG,
     ZCL_CMD_LEVEL_MOVE_WITH_ON_OFF,
@@ -37,6 +39,85 @@ def momentary_device(device: Device, relay_button_pair: RelayButtonPair) -> Devi
         relay_button_pair.switch_endpoint, ZCL_ONOFF_CONFIGURATION_SWITCH_TYPE_MOMENTARY
     )
     return device
+
+
+@pytest.mark.parametrize("duration_ms", [30, 60, 90])
+@pytest.mark.parametrize(
+    "binding_mode",
+    [
+        ZCL_ONOFF_CONFIGURATION_BINDED_MODE_RISE,
+        ZCL_ONOFF_CONFIGURATION_BINDED_MODE_SHORT,
+    ],
+)
+@pytest.mark.parametrize(
+    "action,expected_cmd",
+    [
+        (ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_TOGGLE_SIMPLE, ZCL_CMD_ONOFF_TOGGLE),
+        (ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_ONOFF, ZCL_CMD_ONOFF_ON),
+        (ZCL_ONOFF_CONFIGURATION_SWITCH_ACTION_OFFON, ZCL_CMD_ONOFF_OFF),
+    ],
+)
+def test_quick_press_reports_and_binding_commands(
+    momentary_device: Device,
+    relay_button_pair: RelayButtonPair,
+    duration_ms: int,
+    binding_mode: int,
+    action: int,
+    expected_cmd: int,
+):
+    device = momentary_device
+    endpoint = relay_button_pair.switch_endpoint
+    device.zcl_switch_binding_mode_set(endpoint, binding_mode)
+    device.zcl_switch_actions_set(endpoint, action)
+    reports = []
+
+    def capture_report(event):
+        if (
+            event.kind == "zcl_attr_report"
+            and int(event.payload["ep"]) == endpoint
+            and int(event.payload["cluster"], 16) == ZCL_CLUSTER_MULTISTATE_INPUT_BASIC
+            and int(event.payload["attr"], 16) == ZCL_ATTR_MULTISTATE_INPUT_PRESENT_VALUE
+        ):
+            reports.append(
+                int.from_bytes(bytes.fromhex(event.payload["data_hex"]), "little")
+            )
+
+    device.p.on_event.append(capture_report)
+    # Repeat without waiting for a periodic reporting pass between clicks.
+    for _ in range(2):
+        device.clear_events()
+        device.set_gpio(relay_button_pair.button_pin, 0)
+        device.step_time(duration_ms)
+        device.set_gpio(relay_button_pair.button_pin, 1)
+        device.step_time(30)
+        assert device.zcl_switch_get_multistate_value(endpoint) == "0"
+        device.wait_for_cmd_send(endpoint, ZCL_CLUSTER_ON_OFF, expected_cmd)
+        assert len(device.zcl_list_cmds(endpoint, ZCL_CLUSTER_ON_OFF)) == 1
+    assert reports == [1, 0, 1, 0]
+
+
+@pytest.mark.parametrize("duration_ms", [30, 60, 90])
+@pytest.mark.parametrize(
+    "relay_mode",
+    [
+        ZCL_ONOFF_CONFIGURATION_RELAY_MODE_RISE,
+        ZCL_ONOFF_CONFIGURATION_RELAY_MODE_SHORT,
+    ],
+)
+def test_quick_press_controls_relay(
+    momentary_device: Device,
+    relay_button_pair: RelayButtonPair,
+    duration_ms: int,
+    relay_mode: int,
+):
+    device = momentary_device
+    device.zcl_switch_relay_mode_set(relay_button_pair.switch_endpoint, relay_mode)
+    for expected_state in ("1", "0"):
+        device.set_gpio(relay_button_pair.button_pin, 0)
+        device.step_time(duration_ms)
+        device.set_gpio(relay_button_pair.button_pin, 1)
+        device.step_time(30)
+        assert device.zcl_relay_get(relay_button_pair.relay_endpoint) == expected_state
 
 
 def test_toggle_mode_rise_mode_relay_control(

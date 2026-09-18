@@ -311,9 +311,7 @@ void switch_cluster_on_button_press(zigbee_switch_cluster *cluster) {
   }
 
   cluster->multistate_state = MULTISTATE_PRESS;
-  hal_zigbee_notify_attribute_changed(cluster->endpoint,
-                                      ZCL_CLUSTER_MULTISTATE_INPUT_BASIC,
-                                      ZCL_ATTR_MULTISTATE_INPUT_PRESENT_VALUE);
+  switch_cluster_report_action(cluster);
 }
 
 void switch_cluster_on_button_release(zigbee_switch_cluster *cluster) {
@@ -344,9 +342,7 @@ void switch_cluster_on_button_release(zigbee_switch_cluster *cluster) {
   }
 
   cluster->multistate_state = MULTISTATE_NOT_PRESSED;
-  hal_zigbee_notify_attribute_changed(cluster->endpoint,
-                                      ZCL_CLUSTER_MULTISTATE_INPUT_BASIC,
-                                      ZCL_ATTR_MULTISTATE_INPUT_PRESENT_VALUE);
+  switch_cluster_report_action(cluster);
 }
 
 void switch_cluster_on_button_long_press(zigbee_switch_cluster *cluster) {
@@ -369,9 +365,16 @@ void switch_cluster_on_button_long_press(zigbee_switch_cluster *cluster) {
   switch_cluster_level_control(cluster);
 
   cluster->multistate_state = MULTISTATE_LONG_PRESS;
-  hal_zigbee_notify_attribute_changed(cluster->endpoint,
-                                      ZCL_CLUSTER_MULTISTATE_INPUT_BASIC,
-                                      ZCL_ATTR_MULTISTATE_INPUT_PRESENT_VALUE);
+  switch_cluster_report_action(cluster);
+}
+
+void switch_cluster_report_action(zigbee_switch_cluster *cluster) {
+  // Actions are transient events: periodic attribute reporting can miss a
+  // press when the button is released before the next reporting pass.
+  hal_zigbee_send_report_attr(
+      cluster->endpoint, ZCL_CLUSTER_MULTISTATE_INPUT_BASIC,
+      ZCL_ATTR_MULTISTATE_INPUT_PRESENT_VALUE, ZCL_DATA_TYPE_UINT16,
+      &cluster->multistate_state, sizeof(cluster->multistate_state));
 }
 
 hal_task_t restart_task;
